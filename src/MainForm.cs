@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 
 namespace BitLCDMarqueeStudio
@@ -14,7 +15,7 @@ namespace BitLCDMarqueeStudio
         private readonly TextBox _albumText;
         private readonly TextBox _featuredText;
         private readonly TextBox _yearText;
-        private readonly ListBox _resourceList;
+        private readonly FlowLayoutPanel _resourceTiles;
         private readonly MarqueeLayout _layout;
         private readonly ResourceSearchService _searchService;
 
@@ -60,13 +61,14 @@ namespace BitLCDMarqueeStudio
             _preview = new CanvasPreviewControl { Dock = DockStyle.Fill, LayoutModel = _layout };
             right.Controls.Add(_preview, 0, 0);
 
-            _resourceList = new ListBox
+            _resourceTiles = new FlowLayoutPanel
             {
                 Dock = DockStyle.Fill,
                 BackColor = Color.FromArgb(16, 22, 40),
-                ForeColor = Color.White,
-                BorderStyle = BorderStyle.FixedSingle,
-                Font = new Font("Segoe UI", 10f)
+                AutoScroll = true,
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = true,
+                Padding = new Padding(8)
             };
             right.Controls.Add(CreateResourceGroup(), 0, 1);
 
@@ -171,12 +173,12 @@ namespace BitLCDMarqueeStudio
             var note = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "Search will gather Apple Music / MusicBrainz / FanArt candidates here. Selectable visual tiles come next.",
+                Text = "Search gathers Apple Music / MusicBrainz / FanArt candidates. Use tile buttons to place artwork on the canvas.",
                 ForeColor = Color.FromArgb(210, 220, 235),
                 TextAlign = ContentAlignment.MiddleLeft
             };
             layout.Controls.Add(note, 0, 0);
-            layout.Controls.Add(_resourceList, 0, 1);
+            layout.Controls.Add(_resourceTiles, 0, 1);
             return group;
         }
 
@@ -325,34 +327,24 @@ namespace BitLCDMarqueeStudio
                 ReleaseYear = (_yearText.Text ?? string.Empty).Trim()
             };
 
-            _resourceList.Items.Clear();
-            _resourceList.Items.Add("Searching resources...");
+            _resourceTiles.Controls.Clear();
+            _resourceTiles.Controls.Add(CreateStatusTile("Searching resources..."));
             UseWaitCursor = true;
             Enabled = false;
             try
             {
                 IList<ResourceResult> results = _searchService.SearchJukebox(request);
-                _resourceList.Items.Clear();
-                _resourceList.Items.Add("Search complete: " + results.Count + " result(s)");
-                _resourceList.Items.Add("");
+                _resourceTiles.Controls.Clear();
                 foreach (ResourceResult result in results)
                 {
-                    _resourceList.Items.Add(result);
-                    if (!string.IsNullOrWhiteSpace(result.Detail))
-                    {
-                        _resourceList.Items.Add("    " + result.Detail);
-                    }
-                    if (!string.IsNullOrWhiteSpace(result.ArtworkUrl))
-                    {
-                        _resourceList.Items.Add("    " + result.ArtworkUrl);
-                    }
+                    _resourceTiles.Controls.Add(CreateResourceTile(result));
                 }
+                if (results.Count == 0) _resourceTiles.Controls.Add(CreateStatusTile("No resources found."));
             }
             catch (Exception ex)
             {
-                _resourceList.Items.Clear();
-                _resourceList.Items.Add("Search failed:");
-                _resourceList.Items.Add(ex.Message);
+                _resourceTiles.Controls.Clear();
+                _resourceTiles.Controls.Add(CreateStatusTile("Search failed: " + ex.Message));
                 MessageBox.Show(this, ex.Message, "Search Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
@@ -360,6 +352,115 @@ namespace BitLCDMarqueeStudio
                 Enabled = true;
                 UseWaitCursor = false;
             }
+        }
+
+        private Control CreateStatusTile(string message)
+        {
+            return new Label
+            {
+                Width = 760,
+                Height = 44,
+                Text = message,
+                ForeColor = Color.FromArgb(220, 230, 245),
+                BackColor = Color.FromArgb(22, 30, 50),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(10)
+            };
+        }
+
+        private Control CreateResourceTile(ResourceResult result)
+        {
+            var tile = new Panel
+            {
+                Width = 285,
+                Height = 206,
+                BackColor = Color.FromArgb(22, 30, 50),
+                Margin = new Padding(6),
+                Padding = new Padding(8)
+            };
+
+            var image = new PictureBox
+            {
+                Width = 92,
+                Height = 92,
+                Left = 8,
+                Top = 8,
+                BackColor = Color.FromArgb(8, 10, 20),
+                SizeMode = PictureBoxSizeMode.Zoom
+            };
+            if (!string.IsNullOrWhiteSpace(result.CachedImagePath) && File.Exists(result.CachedImagePath))
+            {
+                try
+                {
+                    using (var temp = Image.FromFile(result.CachedImagePath))
+                    {
+                        image.Image = new Bitmap(temp);
+                    }
+                }
+                catch
+                {
+                }
+            }
+            tile.Controls.Add(image);
+
+            var title = new Label
+            {
+                Left = 108,
+                Top = 6,
+                Width = 166,
+                Height = 44,
+                Text = result.Label,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold)
+            };
+            tile.Controls.Add(title);
+
+            var meta = new Label
+            {
+                Left = 108,
+                Top = 52,
+                Width = 166,
+                Height = 48,
+                Text = result.Source + "\r\n" + result.ResourceType,
+                ForeColor = Color.FromArgb(180, 205, 230),
+                Font = new Font("Segoe UI", 8f)
+            };
+            tile.Controls.Add(meta);
+
+            var detail = new Label
+            {
+                Left = 8,
+                Top = 105,
+                Width = 266,
+                Height = 38,
+                Text = result.Detail,
+                ForeColor = Color.FromArgb(200, 210, 225),
+                Font = new Font("Segoe UI", 7.5f)
+            };
+            tile.Controls.Add(detail);
+
+            AddTileButton(tile, "Set Left", 8, 152, delegate { _preview.SetLeftImage(result.CachedImagePath); });
+            AddTileButton(tile, "Set Right", 94, 152, delegate { _preview.SetRightImage(result.CachedImagePath); });
+            AddTileButton(tile, "Background", 180, 152, delegate { _preview.SetBackgroundImage(result.CachedImagePath); });
+
+            return tile;
+        }
+
+        private static void AddTileButton(Control parent, string text, int x, int y, EventHandler click)
+        {
+            var button = new Button
+            {
+                Text = text,
+                Left = x,
+                Top = y,
+                Width = 80,
+                Height = 30,
+                BackColor = Color.FromArgb(42, 105, 235),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            button.Click += click;
+            parent.Controls.Add(button);
         }
 
         private void PopulatePanelFields()

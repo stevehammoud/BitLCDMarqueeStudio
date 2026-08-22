@@ -27,6 +27,7 @@ namespace BitLCDMarqueeStudio
         public string Label { get; set; }
         public string Detail { get; set; }
         public string ArtworkUrl { get; set; }
+        public string CachedImagePath { get; set; }
         public int Score { get; set; }
 
         public override string ToString()

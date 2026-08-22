@@ -16,6 +16,7 @@ namespace BitLCDMarqueeStudio
     {
         private readonly string _rootDir;
         private readonly string _resourcesDir;
+        private readonly string _cacheDir;
         private readonly JavaScriptSerializer _json;
         private string _appleToken;
         private DateTime _appleTokenExpiresUtc;
@@ -24,6 +25,8 @@ namespace BitLCDMarqueeStudio
         {
             _rootDir = AppDomain.CurrentDomain.BaseDirectory;
             _resourcesDir = FindResourcesDirectory(_rootDir);
+            _cacheDir = Path.Combine(_rootDir, "cache", "resources");
+            Directory.CreateDirectory(_cacheDir);
             _json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
         }
@@ -44,11 +47,13 @@ namespace BitLCDMarqueeStudio
                     Score = 0
                 });
             }
-            return results
+            List<ResourceResult> ordered = results
                 .OrderByDescending(r => r.Score)
                 .ThenBy(r => r.Source)
                 .ThenBy(r => r.ResourceType)
                 .ToList();
+            CacheArtwork(ordered);
+            return ordered;
         }
 
         private static void AddProviderResults(ICollection<ResourceResult> results, string providerName, Func<IEnumerable<ResourceResult>> provider)
@@ -457,6 +462,40 @@ namespace BitLCDMarqueeStudio
                 string json = client.DownloadString(url);
                 return _json.DeserializeObject(json) as Dictionary<string, object> ?? new Dictionary<string, object>();
             }
+        }
+
+        private void CacheArtwork(IEnumerable<ResourceResult> results)
+        {
+            foreach (ResourceResult result in results)
+            {
+                if (string.IsNullOrWhiteSpace(result.ArtworkUrl)) continue;
+                try
+                {
+                    result.CachedImagePath = GetCachedArtworkPath(result.ArtworkUrl);
+                }
+                catch
+                {
+                    result.CachedImagePath = string.Empty;
+                }
+            }
+        }
+
+        private string GetCachedArtworkPath(string url)
+        {
+            byte[] hashBytes;
+            using (SHA256 sha = SHA256.Create())
+            {
+                hashBytes = sha.ComputeHash(Encoding.UTF8.GetBytes(url));
+            }
+            string name = BitConverter.ToString(hashBytes).Replace("-", string.Empty).ToLowerInvariant() + ".img";
+            string path = Path.Combine(_cacheDir, name);
+            if (File.Exists(path) && new FileInfo(path).Length > 0) return path;
+
+            using (var client = new WebClient())
+            {
+                client.DownloadFile(url, path);
+            }
+            return path;
         }
 
         private string ReadResourceText(string fileName)

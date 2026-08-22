@@ -55,7 +55,7 @@ Right:  x=1560, y=0, w=360,  h=360
 
 ## Search Results
 
-The first search implementation lists resource candidates as text rows.
+Search displays resource candidates as thumbnail tiles.
 
 Current providers:
 
@@ -63,4 +63,10 @@ Current providers:
 - MusicBrainz
 - FanArt.tv
 
-The next UI step is replacing the text list with visual tiles that can be selected and placed on the canvas.
+Each artwork tile can currently be assigned as:
+
+- Left panel
+- Right panel
+- Background
+
+MusicBrainz metadata-only rows may appear without thumbnails.
