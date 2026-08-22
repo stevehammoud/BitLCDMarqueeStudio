@@ -1,0 +1,35 @@
+# Build output
+bin/
+obj/
+dist/
+publish/
+*.user
+*.suo
+
+# Generated artwork/video output
+output/
+downloads/
+generated/
+cache/
+*.tmp
+
+# Local/private credentials
+resources/apple_music_team_id.txt
+resources/apple_music_key_id.txt
+resources/apple_music_private_key_path.txt
+resources/AuthKey_*.p8
+*.p8
+*.key
+*.pem
+
+# Local metadata inputs may contain personal curation data
+input/
+*.local.csv
+*.local.txt
+
+# OS/editor noise
+.vs/
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
