@@ -31,14 +31,45 @@ namespace BitLCDMarqueeStudio
         public IList<ResourceResult> SearchJukebox(JukeboxSearchRequest request)
         {
             var results = new List<ResourceResult>();
-            results.AddRange(SearchAppleMusic(request));
-            results.AddRange(SearchMusicBrainz(request));
-            results.AddRange(SearchFanArt(request));
+            AddProviderResults(results, "Apple Music", delegate { return SearchAppleMusic(request); });
+            AddProviderResults(results, "MusicBrainz", delegate { return SearchMusicBrainz(request); });
+            AddProviderResults(results, "FanArt.tv", delegate { return SearchFanArt(request); });
+            if (results.Count == 0)
+            {
+                results.Add(new ResourceResult
+                {
+                    Source = "Search",
+                    ResourceType = "status",
+                    Label = "No resources were returned by the enabled providers.",
+                    Score = 0
+                });
+            }
             return results
                 .OrderByDescending(r => r.Score)
                 .ThenBy(r => r.Source)
                 .ThenBy(r => r.ResourceType)
                 .ToList();
+        }
+
+        private static void AddProviderResults(ICollection<ResourceResult> results, string providerName, Func<IEnumerable<ResourceResult>> provider)
+        {
+            try
+            {
+                foreach (ResourceResult result in provider())
+                {
+                    results.Add(result);
+                }
+            }
+            catch (Exception ex)
+            {
+                results.Add(new ResourceResult
+                {
+                    Source = providerName,
+                    ResourceType = "error",
+                    Label = ex.Message,
+                    Score = -1
+                });
+            }
         }
 
         private IEnumerable<ResourceResult> SearchAppleMusic(JukeboxSearchRequest request)
@@ -507,8 +538,14 @@ namespace BitLCDMarqueeStudio
         {
             if (source == null || !source.ContainsKey(key) || source[key] == null) return Enumerable.Empty<Dictionary<string, object>>();
             var array = source[key] as ArrayList;
-            if (array == null) return Enumerable.Empty<Dictionary<string, object>>();
-            return array.OfType<Dictionary<string, object>>();
+            if (array != null) return array.OfType<Dictionary<string, object>>();
+
+            var objectArray = source[key] as object[];
+            if (objectArray != null) return objectArray.OfType<Dictionary<string, object>>();
+
+            var enumerable = source[key] as IEnumerable;
+            if (enumerable == null || source[key] is string) return Enumerable.Empty<Dictionary<string, object>>();
+            return enumerable.OfType<Dictionary<string, object>>();
         }
     }
 }
