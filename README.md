@@ -21,6 +21,14 @@ This project is intentionally separate from Jukebox Download Wizard. Its job is 
 - Reusable render templates by content type
 - Metadata-driven artwork lookup
 
+## Build
+
+```powershell
+cd "C:\Users\steve\Documents\Codex\BitLCDMarqueeStudio"
+scripts\build.ps1
+dist\BitLCDMarqueeStudio.exe
+```
+
 ## Private Apple Music Build
 
 Apple Music artwork support is intended for personal/local use unless licensing is reviewed separately. Credentials, private keys, generated cache, and generated artwork are ignored by git.
