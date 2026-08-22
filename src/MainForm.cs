@@ -16,6 +16,7 @@ namespace BitLCDMarqueeStudio
         private readonly TextBox _yearText;
         private readonly ListBox _resourceList;
         private readonly MarqueeLayout _layout;
+        private readonly ResourceSearchService _searchService;
 
         public MainForm()
         {
@@ -28,6 +29,7 @@ namespace BitLCDMarqueeStudio
 
             _layout = MarqueeLayout.CreateJukeboxDefault();
             _panelFields = new Dictionary<string, TextBox>();
+            _searchService = new ResourceSearchService();
 
             var root = new TableLayoutPanel
             {
@@ -324,14 +326,40 @@ namespace BitLCDMarqueeStudio
             };
 
             _resourceList.Items.Clear();
-            _resourceList.Items.Add("Search request queued:");
-            _resourceList.Items.Add("Artist: " + request.Artist);
-            _resourceList.Items.Add("Title: " + request.Title);
-            if (request.AlbumOrRelease.Length > 0) _resourceList.Items.Add("Album / Release: " + request.AlbumOrRelease);
-            if (request.FeaturedArtist.Length > 0) _resourceList.Items.Add("Featured Artist: " + request.FeaturedArtist);
-            if (request.ReleaseYear.Length > 0) _resourceList.Items.Add("Release Year: " + request.ReleaseYear);
-            _resourceList.Items.Add("");
-            _resourceList.Items.Add("Next implementation step: Apple Music candidate lookup and visual resource tiles.");
+            _resourceList.Items.Add("Searching resources...");
+            UseWaitCursor = true;
+            Enabled = false;
+            try
+            {
+                IList<ResourceResult> results = _searchService.SearchJukebox(request);
+                _resourceList.Items.Clear();
+                _resourceList.Items.Add("Search complete: " + results.Count + " result(s)");
+                _resourceList.Items.Add("");
+                foreach (ResourceResult result in results)
+                {
+                    _resourceList.Items.Add(result);
+                    if (!string.IsNullOrWhiteSpace(result.Detail))
+                    {
+                        _resourceList.Items.Add("    " + result.Detail);
+                    }
+                    if (!string.IsNullOrWhiteSpace(result.ArtworkUrl))
+                    {
+                        _resourceList.Items.Add("    " + result.ArtworkUrl);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _resourceList.Items.Clear();
+                _resourceList.Items.Add("Search failed:");
+                _resourceList.Items.Add(ex.Message);
+                MessageBox.Show(this, ex.Message, "Search Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                Enabled = true;
+                UseWaitCursor = false;
+            }
         }
 
         private void PopulatePanelFields()

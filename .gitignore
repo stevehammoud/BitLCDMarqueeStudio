@@ -18,6 +18,8 @@ resources/apple_music_team_id.txt
 resources/apple_music_key_id.txt
 resources/apple_music_private_key_path.txt
 resources/AuthKey_*.p8
+resources/fanart_project_api_key.txt
+resources/fanart_personal_api_key.txt
 *.p8
 *.key
 *.pem

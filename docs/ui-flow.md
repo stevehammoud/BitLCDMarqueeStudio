@@ -52,3 +52,15 @@ Left:   x=0,    y=0, w=360,  h=360
 Center: x=360,  y=0, w=1200, h=360
 Right:  x=1560, y=0, w=360,  h=360
 ```
+
+## Search Results
+
+The first search implementation lists resource candidates as text rows.
+
+Current providers:
+
+- Apple Music
+- MusicBrainz
+- FanArt.tv
+
+The next UI step is replacing the text list with visual tiles that can be selected and placed on the canvas.

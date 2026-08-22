@@ -13,6 +13,7 @@ New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $sources = @(
     (Join-Path $Root 'src\Program.cs'),
     (Join-Path $Root 'src\Models.cs'),
+    (Join-Path $Root 'src\ResourceSearchService.cs'),
     (Join-Path $Root 'src\CanvasPreviewControl.cs'),
     (Join-Path $Root 'src\MainForm.cs')
 )
@@ -26,6 +27,7 @@ $sources = @(
     /reference:System.Core.dll `
     /reference:System.Drawing.dll `
     /reference:System.Windows.Forms.dll `
+    /reference:System.Web.Extensions.dll `
     $sources
 
 if ($LASTEXITCODE -ne 0) {

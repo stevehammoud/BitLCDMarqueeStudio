@@ -39,4 +39,12 @@ Generated BitLCD artwork should match the target content filename base and appen
 
 ## Status
 
-Early scaffold. Rendering code will be ported from the proven JDW marquee pipeline once the global content model is defined.
+Early scaffold with live Jukebox resource search.
+
+Current search providers:
+
+- Apple Music catalog search for song/album artwork, music-video stills, artist art, and featured-artist art
+- MusicBrainz recording metadata
+- FanArt.tv artist logo/image/background candidates
+
+Visual resource tiles and drag/drop canvas placement are next.
