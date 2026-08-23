@@ -39,15 +39,33 @@ namespace BitLCDMarqueeStudio
             Invalidate();
         }
 
+        public void ClearLeftImage()
+        {
+            DisposeImage(ref _leftImage);
+            Invalidate();
+        }
+
         public void SetMiddleImage(string path)
         {
             ReplaceImage(ref _middleImage, path);
             Invalidate();
         }
 
+        public void ClearMiddleImage()
+        {
+            DisposeImage(ref _middleImage);
+            Invalidate();
+        }
+
         public void SetRightImage(string path)
         {
             ReplaceImage(ref _rightImage, path);
+            Invalidate();
+        }
+
+        public void ClearRightImage()
+        {
+            DisposeImage(ref _rightImage);
             Invalidate();
         }
 
@@ -102,7 +120,12 @@ namespace BitLCDMarqueeStudio
             DrawPanelImage(g, canvas, _layout.RightPanel, _rightImage);
             if (_middleImage != null)
             {
-                DrawImageContain(g, _middleImage, ScaleRect(canvas, _layout.CenterPanel));
+                Rectangle padded = new Rectangle(
+                    _layout.CenterPanel.X + 15,
+                    _layout.CenterPanel.Y + 15,
+                    Math.Max(1, _layout.CenterPanel.Width - 30),
+                    Math.Max(1, _layout.CenterPanel.Height - 30));
+                DrawImageContain(g, _middleImage, ScaleRect(canvas, padded));
             }
             else
             {

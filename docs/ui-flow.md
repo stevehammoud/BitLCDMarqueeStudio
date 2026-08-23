@@ -28,6 +28,14 @@ Optional:
 - Featured Artist
 - Release Year
 
+The app can also load a Jukebox theme text file where each non-empty line is:
+
+```text
+artist - title - album
+```
+
+Selecting an entry fills Artist, Title, and Album / Release. The separator is ` - ` with spaces, so artist names like `A-Ha` are safe.
+
 Removed by design:
 
 - Apple Music URL / ID
@@ -69,7 +77,9 @@ Each artwork tile can be assigned as:
 - M: middle 1200 x 360 panel
 - R: right 360 x 360 panel
 
-If no middle artwork is selected, the app draws the title and artist using the built-in Jukebox text style over a generated background.
+Each selected panel can also be cleared. If no middle artwork is selected, the app draws the title and artist using the built-in Jukebox text style over a generated background.
+
+Middle artwork is inset by about 15 canvas pixels on each side so it does not touch the panel edges.
 
 MusicBrainz metadata-only rows may appear without thumbnails and cannot be placed directly on the canvas.
 

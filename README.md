@@ -50,6 +50,8 @@ Current search providers:
 Current Jukebox workflow:
 
 - Enter artist and title search criteria.
+- Optionally load a Jukebox theme text file using `artist - title - album` lines.
 - Pick artwork candidates for fixed L / M / R placement.
+- Clear any selected panel artwork when you want to revert that panel.
 - Let the app draw the middle title/artist panel when no middle artwork is selected.
 - Generate a BitLCD JPG named from the matching MP4 filename with ` (JUKE)` appended.

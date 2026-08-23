@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Text;
 using System.Windows.Forms;
 
 namespace BitLCDMarqueeStudio
@@ -15,8 +16,10 @@ namespace BitLCDMarqueeStudio
         private readonly TextBox _albumText;
         private readonly TextBox _featuredText;
         private readonly TextBox _yearText;
+        private readonly ComboBox _themeEntryList;
         private readonly FlowLayoutPanel _resourceTiles;
         private readonly ResourceSearchService _searchService;
+        private readonly List<JukeboxThemeEntry> _themeEntries;
 
         public MainForm()
         {
@@ -28,6 +31,7 @@ namespace BitLCDMarqueeStudio
             ForeColor = Color.White;
 
             _searchService = new ResourceSearchService();
+            _themeEntries = new List<JukeboxThemeEntry>();
 
             var root = new TableLayoutPanel
             {
@@ -78,6 +82,7 @@ namespace BitLCDMarqueeStudio
             _albumText = GetField(left, "Album / Release");
             _featuredText = GetField(left, "Featured Artist");
             _yearText = GetField(left, "Release Year");
+            _themeEntryList = GetThemeEntryList(left);
         }
 
         private Control CreateLeftPanel()
@@ -107,6 +112,7 @@ namespace BitLCDMarqueeStudio
             AddLabeledTextBox(flow, "Album / Release", false);
             AddLabeledTextBox(flow, "Featured Artist", false);
             AddLabeledTextBox(flow, "Release Year", false);
+            AddThemeEntryPicker(flow);
 
             var search = CreateButton("Search Resources");
             search.Click += OnSearchResources;
@@ -116,6 +122,18 @@ namespace BitLCDMarqueeStudio
             AddHeader(flow, "Fixed Layout");
             AddSmallNote(flow, "Canvas is locked at 1920 x 360. Jukebox panels are fixed: left 360 x 360, middle 1200 x 360, right 360 x 360.");
             AddSmallNote(flow, "Choose artwork for L / M / R. If M is empty, the app draws the title and artist using the built-in style.");
+
+            var clearRow = new FlowLayoutPanel
+            {
+                Width = 315,
+                Height = 36,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = flow.BackColor
+            };
+            AddClearButton(clearRow, "Clear L", delegate { _preview.ClearLeftImage(); });
+            AddClearButton(clearRow, "Clear M", delegate { _preview.ClearMiddleImage(); });
+            AddClearButton(clearRow, "Clear R", delegate { _preview.ClearRightImage(); });
+            flow.Controls.Add(clearRow);
 
             var generate = CreateButton("Generate Marquee");
             generate.BackColor = Color.FromArgb(25, 165, 85);
@@ -224,6 +242,62 @@ namespace BitLCDMarqueeStudio
             });
         }
 
+        private static void AddThemeEntryPicker(FlowLayoutPanel flow)
+        {
+            flow.Controls.Add(new Label
+            {
+                Text = "Jukebox Theme File",
+                Width = 315,
+                Height = 20,
+                ForeColor = Color.FromArgb(220, 230, 245)
+            });
+
+            var row = new FlowLayoutPanel
+            {
+                Width = 315,
+                Height = 34,
+                FlowDirection = FlowDirection.LeftToRight,
+                BackColor = flow.BackColor
+            };
+
+            var list = new ComboBox
+            {
+                Name = "ThemeEntryList",
+                Width = 206,
+                Height = 24,
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                BackColor = Color.FromArgb(22, 30, 50),
+                ForeColor = Color.White
+            };
+
+            var load = new Button
+            {
+                Text = "Load File",
+                Width = 100,
+                Height = 28,
+                BackColor = Color.FromArgb(42, 105, 235),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+
+            row.Controls.Add(list);
+            row.Controls.Add(load);
+            flow.Controls.Add(row);
+
+            load.Click += delegate
+            {
+                Form form = flow.FindForm();
+                var main = form as MainForm;
+                if (main != null) main.OnLoadThemeFile();
+            };
+            list.SelectedIndexChanged += delegate
+            {
+                Form form = flow.FindForm();
+                var main = form as MainForm;
+                if (main != null) main.OnThemeEntrySelected();
+            };
+        }
+
         private static Button CreateButton(string text)
         {
             return new Button
@@ -241,6 +315,101 @@ namespace BitLCDMarqueeStudio
         {
             Control[] matches = root.Controls.Find("Field_" + label, true);
             return matches.Length > 0 ? (TextBox)matches[0] : null;
+        }
+
+        private static ComboBox GetThemeEntryList(Control root)
+        {
+            Control[] matches = root.Controls.Find("ThemeEntryList", true);
+            return matches.Length > 0 ? (ComboBox)matches[0] : null;
+        }
+
+        private static void AddClearButton(Control parent, string text, EventHandler click)
+        {
+            var button = new Button
+            {
+                Text = text,
+                Width = 99,
+                Height = 30,
+                BackColor = Color.FromArgb(35, 45, 62),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
+            };
+            button.Click += click;
+            parent.Controls.Add(button);
+        }
+
+        private void OnLoadThemeFile()
+        {
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Title = "Load Jukebox Theme File";
+                dialog.Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*";
+                dialog.CheckFileExists = true;
+                dialog.Multiselect = false;
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                var loaded = new List<JukeboxThemeEntry>();
+                string[] lines = File.ReadAllLines(dialog.FileName, Encoding.UTF8);
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    JukeboxThemeEntry entry;
+                    if (TryParseThemeEntry(lines[i], i + 1, out entry))
+                    {
+                        loaded.Add(entry);
+                    }
+                }
+
+                _themeEntries.Clear();
+                _themeEntries.AddRange(loaded);
+                _themeEntryList.Items.Clear();
+                foreach (JukeboxThemeEntry entry in _themeEntries)
+                {
+                    _themeEntryList.Items.Add(entry);
+                }
+
+                if (_themeEntries.Count > 0)
+                {
+                    _themeEntryList.SelectedIndex = 0;
+                    MessageBox.Show(this, "Loaded " + _themeEntries.Count + " jukebox theme entries.", "Theme File Loaded", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show(this, "No valid entries were found. Expected each line to look like:\r\nartist - title - album", "Theme File Empty", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+        }
+
+        private void OnThemeEntrySelected()
+        {
+            if (_themeEntryList == null || _themeEntryList.SelectedItem == null) return;
+            var entry = _themeEntryList.SelectedItem as JukeboxThemeEntry;
+            if (entry == null) return;
+
+            _artistText.Text = entry.Artist;
+            _titleText.Text = entry.Title;
+            _albumText.Text = entry.Album;
+            _preview.SetJukeboxText(entry.Artist, entry.Title, _featuredText.Text);
+        }
+
+        private static bool TryParseThemeEntry(string line, int lineNumber, out JukeboxThemeEntry entry)
+        {
+            entry = null;
+            string text = (line ?? string.Empty).Trim();
+            if (text.Length == 0 || text.StartsWith("#", StringComparison.Ordinal)) return false;
+
+            int first = text.IndexOf(" - ", StringComparison.Ordinal);
+            if (first < 1) return false;
+
+            int second = text.IndexOf(" - ", first + 3, StringComparison.Ordinal);
+            if (second < first + 4) return false;
+
+            string artist = text.Substring(0, first).Trim();
+            string title = text.Substring(first + 3, second - first - 3).Trim();
+            string album = text.Substring(second + 3).Trim();
+            if (artist.Length == 0 || title.Length == 0 || album.Length == 0) return false;
+
+            entry = new JukeboxThemeEntry(lineNumber, artist, title, album);
+            return true;
         }
 
         private void OnSearchResources(object sender, EventArgs e)
@@ -500,6 +669,27 @@ namespace BitLCDMarqueeStudio
                 dialog.CancelButton = cancel;
 
                 return dialog.ShowDialog(this) == DialogResult.OK ? textBox.Text : null;
+            }
+        }
+
+        private sealed class JukeboxThemeEntry
+        {
+            public JukeboxThemeEntry(int lineNumber, string artist, string title, string album)
+            {
+                LineNumber = lineNumber;
+                Artist = artist;
+                Title = title;
+                Album = album;
+            }
+
+            public int LineNumber { get; private set; }
+            public string Artist { get; private set; }
+            public string Title { get; private set; }
+            public string Album { get; private set; }
+
+            public override string ToString()
+            {
+                return Artist + " - " + Title;
             }
         }
     }
