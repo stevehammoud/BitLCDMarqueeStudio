@@ -8,6 +8,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Web.Script.Serialization;
 
 namespace BitLCDMarqueeStudio
@@ -181,10 +182,26 @@ namespace BitLCDMarqueeStudio
             }
 
             string url = "https://musicbrainz.org/ws/2/recording/?query=" + Uri.EscapeDataString(query) + "&fmt=json&limit=10";
-            Dictionary<string, object> root = GetJson(url, new Dictionary<string, string>
+            Dictionary<string, object> root;
+            try
             {
-                { "User-Agent", "BitLCDMarqueeStudio/0.1 (personal-use metadata lookup)" }
-            });
+                root = GetJson(url, new Dictionary<string, string>
+                {
+                    { "User-Agent", "BitLCDMarqueeStudio/0.1 (personal-use metadata lookup)" }
+                });
+            }
+            catch (WebException ex)
+            {
+                results.Add(new ResourceResult
+                {
+                    Source = "MusicBrainz",
+                    ResourceType = "status",
+                    Label = "MusicBrainz is temporarily unavailable. Apple Music and other artwork results can still be used.",
+                    Detail = DescribeWebException(ex),
+                    Score = -1
+                });
+                return results;
+            }
 
             foreach (Dictionary<string, object> recording in GetArray(root, "recordings"))
             {
@@ -261,10 +278,18 @@ namespace BitLCDMarqueeStudio
         private string FindMusicBrainzArtistId(string artistName)
         {
             string url = "https://musicbrainz.org/ws/2/artist/?query=" + Uri.EscapeDataString("artist:\"" + EscapeMusicBrainzQuery(artistName) + "\"") + "&fmt=json&limit=5";
-            Dictionary<string, object> root = GetJson(url, new Dictionary<string, string>
+            Dictionary<string, object> root;
+            try
             {
-                { "User-Agent", "BitLCDMarqueeStudio/0.1 (personal-use metadata lookup)" }
-            });
+                root = GetJson(url, new Dictionary<string, string>
+                {
+                    { "User-Agent", "BitLCDMarqueeStudio/0.1 (personal-use metadata lookup)" }
+                });
+            }
+            catch (WebException)
+            {
+                return string.Empty;
+            }
             Dictionary<string, object> best = null;
             int bestScore = -1;
             foreach (Dictionary<string, object> artist in GetArray(root, "artists"))
@@ -449,19 +474,52 @@ namespace BitLCDMarqueeStudio
 
         private Dictionary<string, object> GetJson(string url, IDictionary<string, string> headers)
         {
-            using (var client = new WebClient())
+            const int attempts = 3;
+            for (int attempt = 1; attempt <= attempts; attempt++)
             {
-                client.Encoding = Encoding.UTF8;
-                if (headers != null)
+                try
                 {
-                    foreach (KeyValuePair<string, string> header in headers)
+                    using (var client = new WebClient())
                     {
-                        client.Headers[header.Key] = header.Value;
+                        client.Encoding = Encoding.UTF8;
+                        if (headers != null)
+                        {
+                            foreach (KeyValuePair<string, string> header in headers)
+                            {
+                                client.Headers[header.Key] = header.Value;
+                            }
+                        }
+                        string json = client.DownloadString(url);
+                        return _json.DeserializeObject(json) as Dictionary<string, object> ?? new Dictionary<string, object>();
                     }
                 }
-                string json = client.DownloadString(url);
-                return _json.DeserializeObject(json) as Dictionary<string, object> ?? new Dictionary<string, object>();
+                catch (WebException ex)
+                {
+                    if (!ShouldRetry(ex) || attempt == attempts)
+                    {
+                        throw;
+                    }
+                    Thread.Sleep(750 * attempt);
+                }
             }
+            return new Dictionary<string, object>();
+        }
+
+        private static bool ShouldRetry(WebException ex)
+        {
+            var response = ex.Response as HttpWebResponse;
+            if (response == null) return false;
+            return response.StatusCode == HttpStatusCode.ServiceUnavailable ||
+                   response.StatusCode == (HttpStatusCode)429 ||
+                   response.StatusCode == HttpStatusCode.GatewayTimeout ||
+                   response.StatusCode == HttpStatusCode.BadGateway;
+        }
+
+        private static string DescribeWebException(WebException ex)
+        {
+            var response = ex.Response as HttpWebResponse;
+            if (response == null) return ex.Message;
+            return ((int)response.StatusCode).ToString(CultureInfo.InvariantCulture) + " " + response.StatusDescription;
         }
 
         private void CacheArtwork(IEnumerable<ResourceResult> results)
