@@ -39,7 +39,7 @@ Removed by design:
 
 The canvas is always `1920 x 360`.
 
-Only panel placement is editable:
+Panel placement is fixed for the Jukebox marquee flow:
 
 - Left panel
 - Center panel
@@ -63,10 +63,24 @@ Current providers:
 - MusicBrainz
 - FanArt.tv
 
-Each artwork tile can currently be assigned as:
+Each artwork tile can be assigned as:
 
-- Left panel
-- Right panel
-- Background
+- L: left 360 x 360 panel
+- M: middle 1200 x 360 panel
+- R: right 360 x 360 panel
 
-MusicBrainz metadata-only rows may appear without thumbnails.
+If no middle artwork is selected, the app draws the title and artist using the built-in Jukebox text style over a generated background.
+
+MusicBrainz metadata-only rows may appear without thumbnails and cannot be placed directly on the canvas.
+
+## Generate
+
+After previewing the canvas, click `Generate Marquee`.
+
+The app prompts for the matching MP4 filename, then writes:
+
+```text
+<mp4 filename base> (JUKE).jpg
+```
+
+The generated file is saved under the app's local `output\marquees` folder and Explorer opens to the created file.

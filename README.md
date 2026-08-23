@@ -47,4 +47,9 @@ Current search providers:
 - MusicBrainz recording metadata
 - FanArt.tv artist logo/image/background candidates
 
-Visual resource tiles and drag/drop canvas placement are next.
+Current Jukebox workflow:
+
+- Enter artist and title search criteria.
+- Pick artwork candidates for fixed L / M / R placement.
+- Let the app draw the middle title/artist panel when no middle artwork is selected.
+- Generate a BitLCD JPG named from the matching MP4 filename with ` (JUKE)` appended.

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
@@ -9,14 +10,12 @@ namespace BitLCDMarqueeStudio
     internal sealed class MainForm : Form
     {
         private readonly CanvasPreviewControl _preview;
-        private readonly Dictionary<string, TextBox> _panelFields;
         private readonly TextBox _artistText;
         private readonly TextBox _titleText;
         private readonly TextBox _albumText;
         private readonly TextBox _featuredText;
         private readonly TextBox _yearText;
         private readonly FlowLayoutPanel _resourceTiles;
-        private readonly MarqueeLayout _layout;
         private readonly ResourceSearchService _searchService;
 
         public MainForm()
@@ -28,8 +27,6 @@ namespace BitLCDMarqueeStudio
             BackColor = Color.FromArgb(9, 14, 28);
             ForeColor = Color.White;
 
-            _layout = MarqueeLayout.CreateJukeboxDefault();
-            _panelFields = new Dictionary<string, TextBox>();
             _searchService = new ResourceSearchService();
 
             var root = new TableLayoutPanel
@@ -58,7 +55,11 @@ namespace BitLCDMarqueeStudio
             right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(right, 1, 0);
 
-            _preview = new CanvasPreviewControl { Dock = DockStyle.Fill, LayoutModel = _layout };
+            _preview = new CanvasPreviewControl
+            {
+                Dock = DockStyle.Fill,
+                LayoutModel = MarqueeLayout.CreateJukeboxDefault()
+            };
             right.Controls.Add(_preview, 0, 0);
 
             _resourceTiles = new FlowLayoutPanel
@@ -77,8 +78,6 @@ namespace BitLCDMarqueeStudio
             _albumText = GetField(left, "Album / Release");
             _featuredText = GetField(left, "Featured Artist");
             _yearText = GetField(left, "Release Year");
-
-            PopulatePanelFields();
         }
 
         private Control CreateLeftPanel()
@@ -114,36 +113,14 @@ namespace BitLCDMarqueeStudio
             flow.Controls.Add(search);
 
             AddDivider(flow);
-            AddHeader(flow, "Layout Settings");
-            AddSmallNote(flow, "Canvas is locked at 1920 x 360. Panel placement is editable.");
-            AddPanelFields(flow, "Left", "L");
-            AddPanelFields(flow, "Center", "C");
-            AddPanelFields(flow, "Right", "R");
+            AddHeader(flow, "Fixed Layout");
+            AddSmallNote(flow, "Canvas is locked at 1920 x 360. Jukebox panels are fixed: left 360 x 360, middle 1200 x 360, right 360 x 360.");
+            AddSmallNote(flow, "Choose artwork for L / M / R. If M is empty, the app draws the title and artist using the built-in style.");
 
-            var buttonRow = new FlowLayoutPanel
-            {
-                Width = 315,
-                Height = 36,
-                FlowDirection = FlowDirection.LeftToRight,
-                BackColor = flow.BackColor
-            };
-            var reset = CreateButton("Reset");
-            reset.Width = 96;
-            reset.Click += delegate { ResetLayout(); };
-            var mirror = CreateButton("Mirror R");
-            mirror.Width = 96;
-            mirror.Click += delegate { MirrorRightFromLeft(); };
-            var center = CreateButton("Center");
-            center.Width = 96;
-            center.Click += delegate { CenterBetweenPanels(); };
-            buttonRow.Controls.Add(reset);
-            buttonRow.Controls.Add(mirror);
-            buttonRow.Controls.Add(center);
-            flow.Controls.Add(buttonRow);
-
-            var apply = CreateButton("Apply Layout");
-            apply.Click += delegate { ApplyLayoutFromFields(); };
-            flow.Controls.Add(apply);
+            var generate = CreateButton("Generate Marquee");
+            generate.BackColor = Color.FromArgb(25, 165, 85);
+            generate.Click += OnGenerateMarquee;
+            flow.Controls.Add(generate);
 
             return panel;
         }
@@ -153,7 +130,7 @@ namespace BitLCDMarqueeStudio
             var group = new GroupBox
             {
                 Dock = DockStyle.Fill,
-                Text = "Resource Tiles",
+                Text = "Artwork Candidates",
                 ForeColor = Color.White,
                 BackColor = BackColor,
                 Padding = new Padding(12)
@@ -173,7 +150,7 @@ namespace BitLCDMarqueeStudio
             var note = new Label
             {
                 Dock = DockStyle.Fill,
-                Text = "Search gathers Apple Music / MusicBrainz / FanArt candidates. Use tile buttons to place artwork on the canvas.",
+                Text = "Search gathers Apple Music / MusicBrainz / FanArt candidates. Select artwork placement: L, M, or R.",
                 ForeColor = Color.FromArgb(210, 220, 235),
                 TextAlign = ContentAlignment.MiddleLeft
             };
@@ -206,7 +183,7 @@ namespace BitLCDMarqueeStudio
             {
                 Text = text,
                 Width = 315,
-                Height = 36,
+                Height = 50,
                 Font = new Font("Segoe UI", 8.5f),
                 ForeColor = Color.FromArgb(180, 195, 215)
             });
@@ -247,48 +224,6 @@ namespace BitLCDMarqueeStudio
             });
         }
 
-        private void AddPanelFields(FlowLayoutPanel flow, string label, string prefix)
-        {
-            flow.Controls.Add(new Label
-            {
-                Text = label + " panel",
-                Width = 315,
-                Height = 20,
-                ForeColor = Color.FromArgb(220, 230, 245)
-            });
-
-            var row = new FlowLayoutPanel
-            {
-                Width = 315,
-                Height = 28,
-                FlowDirection = FlowDirection.LeftToRight,
-                BackColor = flow.BackColor
-            };
-            foreach (string part in new[] { "X", "Y", "W", "H" })
-            {
-                row.Controls.Add(new Label
-                {
-                    Text = part,
-                    Width = 16,
-                    Height = 24,
-                    ForeColor = Color.FromArgb(180, 195, 215),
-                    TextAlign = ContentAlignment.MiddleCenter
-                });
-                var box = new TextBox
-                {
-                    Name = prefix + part,
-                    Width = 56,
-                    Height = 24,
-                    BackColor = Color.FromArgb(22, 30, 50),
-                    ForeColor = Color.White,
-                    BorderStyle = BorderStyle.FixedSingle
-                };
-                _panelFields[prefix + part] = box;
-                row.Controls.Add(box);
-            }
-            flow.Controls.Add(row);
-        }
-
         private static Button CreateButton(string text)
         {
             return new Button
@@ -327,6 +262,7 @@ namespace BitLCDMarqueeStudio
                 ReleaseYear = (_yearText.Text ?? string.Empty).Trim()
             };
 
+            _preview.SetJukeboxText(request.Artist, request.Title, request.FeaturedArtist);
             _resourceTiles.Controls.Clear();
             _resourceTiles.Controls.Add(CreateStatusTile("Searching resources..."));
             UseWaitCursor = true;
@@ -352,6 +288,30 @@ namespace BitLCDMarqueeStudio
                 Enabled = true;
                 UseWaitCursor = false;
             }
+        }
+
+        private void OnGenerateMarquee(object sender, EventArgs e)
+        {
+            string mp4Name = PromptForText("Generate Marquee", "Enter the matching MP4 filename:");
+            if (string.IsNullOrWhiteSpace(mp4Name)) return;
+
+            string outputName = BuildMarqueeFilename(mp4Name);
+            string outputDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "output", "marquees");
+            Directory.CreateDirectory(outputDir);
+
+            string outputPath = Path.Combine(outputDir, outputName);
+            _preview.SaveJpeg(outputPath);
+
+            try
+            {
+                Process.Start("explorer.exe", "/select,\"" + outputPath + "\"");
+            }
+            catch
+            {
+                Process.Start("explorer.exe", outputDir);
+            }
+
+            MessageBox.Show(this, "Generated marquee:\r\n" + outputPath, "Generated", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private Control CreateStatusTile(string message)
@@ -439,14 +399,15 @@ namespace BitLCDMarqueeStudio
             };
             tile.Controls.Add(detail);
 
-            AddTileButton(tile, "Set Left", 8, 152, delegate { _preview.SetLeftImage(result.CachedImagePath); });
-            AddTileButton(tile, "Set Right", 94, 152, delegate { _preview.SetRightImage(result.CachedImagePath); });
-            AddTileButton(tile, "Background", 180, 152, delegate { _preview.SetBackgroundImage(result.CachedImagePath); });
+            bool hasImage = !string.IsNullOrWhiteSpace(result.CachedImagePath) && File.Exists(result.CachedImagePath);
+            AddTileButton(tile, "Set L", 8, 152, hasImage, delegate { _preview.SetLeftImage(result.CachedImagePath); });
+            AddTileButton(tile, "Set M", 94, 152, hasImage, delegate { _preview.SetMiddleImage(result.CachedImagePath); });
+            AddTileButton(tile, "Set R", 180, 152, hasImage, delegate { _preview.SetRightImage(result.CachedImagePath); });
 
             return tile;
         }
 
-        private static void AddTileButton(Control parent, string text, int x, int y, EventHandler click)
+        private static void AddTileButton(Control parent, string text, int x, int y, bool enabled, EventHandler click)
         {
             var button = new Button
             {
@@ -455,7 +416,8 @@ namespace BitLCDMarqueeStudio
                 Top = y,
                 Width = 80,
                 Height = 30,
-                BackColor = Color.FromArgb(42, 105, 235),
+                Enabled = enabled,
+                BackColor = enabled ? Color.FromArgb(42, 105, 235) : Color.FromArgb(45, 52, 66),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
             };
@@ -463,76 +425,82 @@ namespace BitLCDMarqueeStudio
             parent.Controls.Add(button);
         }
 
-        private void PopulatePanelFields()
+        private static string BuildMarqueeFilename(string mp4Name)
         {
-            SetPanelFields("L", _layout.LeftPanel);
-            SetPanelFields("C", _layout.CenterPanel);
-            SetPanelFields("R", _layout.RightPanel);
+            string baseName = Path.GetFileNameWithoutExtension((mp4Name ?? string.Empty).Trim());
+            if (baseName.EndsWith(" (JUKE)", StringComparison.OrdinalIgnoreCase))
+            {
+                baseName = baseName.Substring(0, baseName.Length - " (JUKE)".Length);
+            }
+
+            foreach (char c in Path.GetInvalidFileNameChars())
+            {
+                baseName = baseName.Replace(c, '_');
+            }
+
+            if (string.IsNullOrWhiteSpace(baseName)) baseName = "marquee";
+            return baseName + " (JUKE).jpg";
         }
 
-        private void SetPanelFields(string prefix, Rectangle rect)
+        private string PromptForText(string title, string prompt)
         {
-            _panelFields[prefix + "X"].Text = rect.X.ToString();
-            _panelFields[prefix + "Y"].Text = rect.Y.ToString();
-            _panelFields[prefix + "W"].Text = rect.Width.ToString();
-            _panelFields[prefix + "H"].Text = rect.Height.ToString();
-        }
+            using (var dialog = new Form())
+            using (var label = new Label())
+            using (var textBox = new TextBox())
+            using (var ok = new Button())
+            using (var cancel = new Button())
+            {
+                dialog.Text = title;
+                dialog.StartPosition = FormStartPosition.CenterParent;
+                dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+                dialog.MinimizeBox = false;
+                dialog.MaximizeBox = false;
+                dialog.ClientSize = new Size(520, 136);
+                dialog.BackColor = Color.FromArgb(12, 18, 34);
+                dialog.ForeColor = Color.White;
 
-        private Rectangle ReadPanelFields(string prefix)
-        {
-            return new Rectangle(
-                ReadInt(prefix + "X"),
-                ReadInt(prefix + "Y"),
-                ReadInt(prefix + "W"),
-                ReadInt(prefix + "H"));
-        }
+                label.Text = prompt;
+                label.Left = 14;
+                label.Top = 14;
+                label.Width = 490;
+                label.Height = 22;
+                label.ForeColor = Color.White;
 
-        private int ReadInt(string key)
-        {
-            int value;
-            if (!int.TryParse(_panelFields[key].Text, out value)) value = 0;
-            return value;
-        }
+                textBox.Left = 14;
+                textBox.Top = 42;
+                textBox.Width = 490;
+                textBox.Height = 24;
+                textBox.BackColor = Color.FromArgb(22, 30, 50);
+                textBox.ForeColor = Color.White;
+                textBox.BorderStyle = BorderStyle.FixedSingle;
 
-        private void ApplyLayoutFromFields()
-        {
-            _layout.LeftPanel = ReadPanelFields("L");
-            _layout.CenterPanel = ReadPanelFields("C");
-            _layout.RightPanel = ReadPanelFields("R");
-            _preview.LayoutModel = _layout;
-        }
+                ok.Text = "Generate";
+                ok.Left = 302;
+                ok.Top = 88;
+                ok.Width = 96;
+                ok.DialogResult = DialogResult.OK;
+                ok.BackColor = Color.FromArgb(25, 165, 85);
+                ok.ForeColor = Color.White;
+                ok.FlatStyle = FlatStyle.Flat;
 
-        private void ResetLayout()
-        {
-            var defaults = MarqueeLayout.CreateJukeboxDefault();
-            _layout.LeftPanel = defaults.LeftPanel;
-            _layout.CenterPanel = defaults.CenterPanel;
-            _layout.RightPanel = defaults.RightPanel;
-            PopulatePanelFields();
-            _preview.LayoutModel = _layout;
-        }
+                cancel.Text = "Cancel";
+                cancel.Left = 408;
+                cancel.Top = 88;
+                cancel.Width = 96;
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.BackColor = Color.FromArgb(35, 45, 62);
+                cancel.ForeColor = Color.White;
+                cancel.FlatStyle = FlatStyle.Flat;
 
-        private void MirrorRightFromLeft()
-        {
-            _layout.LeftPanel = ReadPanelFields("L");
-            _layout.RightPanel = new Rectangle(
-                MarqueeLayout.CanvasWidth - _layout.LeftPanel.X - _layout.LeftPanel.Width,
-                _layout.LeftPanel.Y,
-                _layout.LeftPanel.Width,
-                _layout.LeftPanel.Height);
-            SetPanelFields("R", _layout.RightPanel);
-            ApplyLayoutFromFields();
-        }
+                dialog.Controls.Add(label);
+                dialog.Controls.Add(textBox);
+                dialog.Controls.Add(ok);
+                dialog.Controls.Add(cancel);
+                dialog.AcceptButton = ok;
+                dialog.CancelButton = cancel;
 
-        private void CenterBetweenPanels()
-        {
-            _layout.LeftPanel = ReadPanelFields("L");
-            _layout.RightPanel = ReadPanelFields("R");
-            int x = _layout.LeftPanel.Right;
-            int w = Math.Max(1, _layout.RightPanel.Left - x);
-            _layout.CenterPanel = new Rectangle(x, 0, w, MarqueeLayout.CanvasHeight);
-            SetPanelFields("C", _layout.CenterPanel);
-            ApplyLayoutFromFields();
+                return dialog.ShowDialog(this) == DialogResult.OK ? textBox.Text : null;
+            }
         }
     }
 }

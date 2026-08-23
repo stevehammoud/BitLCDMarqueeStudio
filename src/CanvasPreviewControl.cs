@@ -8,9 +8,12 @@ namespace BitLCDMarqueeStudio
     internal sealed class CanvasPreviewControl : Control
     {
         private MarqueeLayout _layout;
-        private Image _backgroundImage;
         private Image _leftImage;
+        private Image _middleImage;
         private Image _rightImage;
+        private string _artistText;
+        private string _titleText;
+        private string _featuredArtistText;
 
         public CanvasPreviewControl()
         {
@@ -30,15 +33,15 @@ namespace BitLCDMarqueeStudio
             }
         }
 
-        public void SetBackgroundImage(string path)
-        {
-            ReplaceImage(ref _backgroundImage, path);
-            Invalidate();
-        }
-
         public void SetLeftImage(string path)
         {
             ReplaceImage(ref _leftImage, path);
+            Invalidate();
+        }
+
+        public void SetMiddleImage(string path)
+        {
+            ReplaceImage(ref _middleImage, path);
             Invalidate();
         }
 
@@ -46,6 +49,24 @@ namespace BitLCDMarqueeStudio
         {
             ReplaceImage(ref _rightImage, path);
             Invalidate();
+        }
+
+        public void SetJukeboxText(string artist, string title, string featuredArtist)
+        {
+            _artistText = artist ?? string.Empty;
+            _titleText = title ?? string.Empty;
+            _featuredArtistText = featuredArtist ?? string.Empty;
+            Invalidate();
+        }
+
+        public void SaveJpeg(string path)
+        {
+            using (var bitmap = new Bitmap(MarqueeLayout.CanvasWidth, MarqueeLayout.CanvasHeight))
+            using (var g = Graphics.FromImage(bitmap))
+            {
+                DrawCanvas(g, new Rectangle(0, 0, MarqueeLayout.CanvasWidth, MarqueeLayout.CanvasHeight), false);
+                bitmap.Save(path, System.Drawing.Imaging.ImageFormat.Jpeg);
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -56,19 +77,21 @@ namespace BitLCDMarqueeStudio
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-            Rectangle canvas = GetCanvasRectangle();
+            DrawCanvas(g, GetCanvasRectangle(), true);
+        }
+
+        private void DrawCanvas(Graphics g, Rectangle canvas, bool showGuides)
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+
             using (var bg = new LinearGradientBrush(canvas, Color.FromArgb(16, 18, 38), Color.FromArgb(38, 12, 52), 0f))
             {
                 g.FillRectangle(bg, canvas);
             }
-            if (_backgroundImage != null)
-            {
-                DrawImageCover(g, _backgroundImage, canvas);
-                using (var dim = new SolidBrush(Color.FromArgb(115, 0, 0, 0)))
-                {
-                    g.FillRectangle(dim, canvas);
-                }
-            }
+
+            DrawGeneratedBackground(g, canvas);
 
             using (var border = new Pen(Color.FromArgb(190, 120, 240, 255), 2))
             {
@@ -77,14 +100,77 @@ namespace BitLCDMarqueeStudio
 
             DrawPanelImage(g, canvas, _layout.LeftPanel, _leftImage);
             DrawPanelImage(g, canvas, _layout.RightPanel, _rightImage);
-            DrawPanel(g, canvas, _layout.LeftPanel, Color.FromArgb(220, 255, 190, 70), "LEFT PANEL");
-            DrawPanel(g, canvas, _layout.CenterPanel, Color.FromArgb(220, 80, 220, 255), "CENTER PANEL");
-            DrawPanel(g, canvas, _layout.RightPanel, Color.FromArgb(220, 255, 90, 190), "RIGHT PANEL");
-
-            using (var font = new Font("Segoe UI", 9f, FontStyle.Bold))
-            using (var brush = new SolidBrush(Color.FromArgb(210, 240, 245, 255)))
+            if (_middleImage != null)
             {
-                g.DrawString("Canvas locked: 1920 x 360", font, brush, canvas.Left + 10, canvas.Bottom + 8);
+                DrawImageContain(g, _middleImage, ScaleRect(canvas, _layout.CenterPanel));
+            }
+            else
+            {
+                DrawJukeboxText(g, canvas);
+            }
+
+            if (showGuides)
+            {
+                DrawPanel(g, canvas, _layout.LeftPanel, Color.FromArgb(220, 255, 190, 70), "LEFT");
+                DrawPanel(g, canvas, _layout.CenterPanel, Color.FromArgb(220, 80, 220, 255), "MIDDLE");
+                DrawPanel(g, canvas, _layout.RightPanel, Color.FromArgb(220, 255, 90, 190), "RIGHT");
+
+                using (var font = new Font("Segoe UI", 9f, FontStyle.Bold))
+                using (var brush = new SolidBrush(Color.FromArgb(210, 240, 245, 255)))
+                {
+                    g.DrawString("Canvas locked: 1920 x 360", font, brush, canvas.Left + 10, canvas.Bottom + 8);
+                }
+            }
+        }
+
+        private void DrawGeneratedBackground(Graphics g, Rectangle canvas)
+        {
+            int seed = Math.Abs(((_artistText ?? string.Empty) + "|" + (_titleText ?? string.Empty)).GetHashCode());
+            Color[] colors =
+            {
+                Color.FromArgb(120, 255, 40, 180),
+                Color.FromArgb(120, 30, 220, 255),
+                Color.FromArgb(115, 255, 180, 45),
+                Color.FromArgb(100, 120, 255, 110)
+            };
+
+            using (var pen = new Pen(colors[seed % colors.Length], Math.Max(2, canvas.Height / 120f)))
+            {
+                for (int i = -canvas.Width; i < canvas.Width * 2; i += Math.Max(20, canvas.Width / 24))
+                {
+                    g.DrawLine(pen, canvas.Left + i, canvas.Top, canvas.Left + i + (canvas.Width / 5), canvas.Bottom);
+                }
+            }
+
+            for (int i = 0; i < 18; i++)
+            {
+                int x = canvas.Left + ((seed + (i * 173)) % Math.Max(1, canvas.Width));
+                int y = canvas.Top + ((seed / 3 + (i * 61)) % Math.Max(1, canvas.Height));
+                int size = 30 + ((seed + i * 13) % 80);
+                using (var brush = new SolidBrush(Color.FromArgb(26, colors[(seed + i) % colors.Length])))
+                using (var pen = new Pen(Color.FromArgb(70, colors[(seed + i) % colors.Length]), 2))
+                {
+                    g.FillEllipse(brush, x - size / 2, y - size / 2, size, size);
+                    g.DrawEllipse(pen, x - size / 2, y - size / 2, size, size);
+                }
+            }
+        }
+
+        private void DrawJukeboxText(Graphics g, Rectangle canvas)
+        {
+            string artist = string.IsNullOrWhiteSpace(_featuredArtistText)
+                ? (_artistText ?? string.Empty)
+                : (_artistText + " FT. " + _featuredArtistText);
+            string title = _titleText ?? string.Empty;
+            RectangleF center = ScaleRect(canvas, _layout.CenterPanel);
+            RectangleF titleRect = new RectangleF(center.X + center.Width * 0.04f, center.Y + center.Height * 0.12f, center.Width * 0.92f, center.Height * 0.36f);
+            RectangleF artistRect = new RectangleF(center.X + center.Width * 0.08f, center.Y + center.Height * 0.55f, center.Width * 0.84f, center.Height * 0.30f);
+
+            using (Font titleFont = FitFont(g, title, titleRect, 92f))
+            using (Font artistFont = FitFont(g, artist, artistRect, 64f))
+            {
+                DrawOutlinedString(g, title.ToUpperInvariant(), titleFont, titleRect, Color.FromArgb(255, 250, 218, 145), Color.FromArgb(255, 28, 20, 54));
+                DrawOutlinedString(g, artist.ToUpperInvariant(), artistFont, artistRect, Color.FromArgb(255, 150, 242, 255), Color.FromArgb(255, 22, 36, 62));
             }
         }
 
@@ -92,8 +178,8 @@ namespace BitLCDMarqueeStudio
         {
             if (disposing)
             {
-                DisposeImage(ref _backgroundImage);
                 DisposeImage(ref _leftImage);
+                DisposeImage(ref _middleImage);
                 DisposeImage(ref _rightImage);
             }
             base.Dispose(disposing);
@@ -161,6 +247,43 @@ namespace BitLCDMarqueeStudio
                 src = new RectangleF(0, (image.Height - srcH) / 2f, image.Width, srcH);
             }
             g.DrawImage(image, dest, src, GraphicsUnit.Pixel);
+        }
+
+        private static void DrawImageContain(Graphics g, Image image, RectangleF dest)
+        {
+            float scale = Math.Min(dest.Width / image.Width, dest.Height / image.Height);
+            float w = image.Width * scale;
+            float h = image.Height * scale;
+            var rect = new RectangleF(dest.X + ((dest.Width - w) / 2f), dest.Y + ((dest.Height - h) / 2f), w, h);
+            g.DrawImage(image, rect);
+        }
+
+        private static Font FitFont(Graphics g, string text, RectangleF rect, float maxSize)
+        {
+            if (string.IsNullOrWhiteSpace(text)) text = " ";
+            for (float size = maxSize; size >= 16f; size -= 2f)
+            {
+                var font = new Font("Arial", size, FontStyle.Bold, GraphicsUnit.Pixel);
+                SizeF measured = g.MeasureString(text, font);
+                if (measured.Width <= rect.Width && measured.Height <= rect.Height) return font;
+                font.Dispose();
+            }
+            return new Font("Arial", 16f, FontStyle.Bold, GraphicsUnit.Pixel);
+        }
+
+        private static void DrawOutlinedString(Graphics g, string text, Font font, RectangleF rect, Color fill, Color outline)
+        {
+            using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            using (var path = new GraphicsPath())
+            using (var fillBrush = new SolidBrush(fill))
+            using (var glowPen = new Pen(Color.FromArgb(130, fill), Math.Max(10f, font.Size * 0.18f)))
+            using (var outlinePen = new Pen(outline, Math.Max(4f, font.Size * 0.07f)))
+            {
+                path.AddString(text, font.FontFamily, (int)font.Style, font.Size, rect, format);
+                g.DrawPath(glowPen, path);
+                g.FillPath(fillBrush, path);
+                g.DrawPath(outlinePen, path);
+            }
         }
 
         private static void ReplaceImage(ref Image target, string path)
