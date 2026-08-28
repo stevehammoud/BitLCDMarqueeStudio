@@ -19,8 +19,6 @@ namespace BitLCDMarqueeStudio
         private readonly string _resourcesDir;
         private readonly string _cacheDir;
         private readonly JavaScriptSerializer _json;
-        private string _appleToken;
-        private DateTime _appleTokenExpiresUtc;
 
         public ResourceSearchService()
         {
@@ -35,7 +33,7 @@ namespace BitLCDMarqueeStudio
         public IList<ResourceResult> SearchJukebox(JukeboxSearchRequest request)
         {
             var results = new List<ResourceResult>();
-            AddProviderResults(results, "Apple Music", delegate { return SearchAppleMusic(request); });
+            AddProviderResults(results, "Discogs", delegate { return SearchDiscogs(request); });
             AddProviderResults(results, "MusicBrainz", delegate { return SearchMusicBrainz(request); });
             AddProviderResults(results, "FanArt.tv", delegate { return SearchFanArt(request); });
             if (results.Count == 0)
@@ -48,6 +46,30 @@ namespace BitLCDMarqueeStudio
                     Score = 0
                 });
             }
+            List<ResourceResult> ordered = results
+                .OrderByDescending(r => r.Score)
+                .ThenBy(r => r.Source)
+                .ThenBy(r => r.ResourceType)
+                .ToList();
+            CacheArtwork(ordered);
+            return ordered;
+        }
+
+        public IList<ResourceResult> SearchArcade(ArcadeSearchRequest request)
+        {
+            var results = new List<ResourceResult>();
+            AddProviderResults(results, "ScreenScraper", delegate { return SearchScreenScraper(request); });
+            if (results.Count == 0)
+            {
+                results.Add(new ResourceResult
+                {
+                    Source = "Search",
+                    ResourceType = "status",
+                    Label = "No arcade artwork resources were returned.",
+                    Score = 0
+                });
+            }
+
             List<ResourceResult> ordered = results
                 .OrderByDescending(r => r.Score)
                 .ThenBy(r => r.Source)
@@ -78,100 +100,6 @@ namespace BitLCDMarqueeStudio
             }
         }
 
-        private IEnumerable<ResourceResult> SearchAppleMusic(JukeboxSearchRequest request)
-        {
-            var results = new List<ResourceResult>();
-            string token = GetAppleDeveloperToken();
-            if (string.IsNullOrWhiteSpace(token))
-            {
-                results.Add(new ResourceResult { Source = "Apple Music", ResourceType = "status", Label = "Apple credentials not found or token could not be created." });
-                return results;
-            }
-
-            foreach (string term in BuildAppleSearchTerms(request))
-            {
-                string url = string.Format(
-                    "https://api.music.apple.com/v1/catalog/us/search?term={0}&types=songs,music-videos,artists&limit=25",
-                    Uri.EscapeDataString(term));
-
-                Dictionary<string, object> root = GetJson(url, new Dictionary<string, string> { { "Authorization", "Bearer " + token } });
-                Dictionary<string, object> data = GetDictionary(root, "results");
-
-                foreach (Dictionary<string, object> song in GetDataArray(GetDictionary(data, "songs")))
-                {
-                    Dictionary<string, object> attr = GetDictionary(song, "attributes");
-                    int score = ScoreAppleCandidate(attr, request);
-                    results.Add(new ResourceResult
-                    {
-                        Source = "Apple Music",
-                        ResourceType = "song/album art",
-                        Label = GetString(attr, "name"),
-                        Detail = string.Format("{0} | {1}", GetString(attr, "artistName"), GetString(attr, "albumName")),
-                        ArtworkUrl = FormatAppleArtworkUrl(GetNestedString(attr, "artwork", "url"), 1200, 1200),
-                        Score = score
-                    });
-                }
-
-                foreach (Dictionary<string, object> video in GetDataArray(GetDictionary(data, "music-videos")))
-                {
-                    Dictionary<string, object> attr = GetDictionary(video, "attributes");
-                    int score = ScoreAppleCandidate(attr, request) - 4;
-                    results.Add(new ResourceResult
-                    {
-                        Source = "Apple Music",
-                        ResourceType = "music video still",
-                        Label = GetString(attr, "name"),
-                        Detail = GetString(attr, "artistName"),
-                        ArtworkUrl = FormatAppleArtworkUrl(GetNestedString(attr, "artwork", "url"), 1920, 1080),
-                        Score = score
-                    });
-                }
-
-                foreach (Dictionary<string, object> artist in GetDataArray(GetDictionary(data, "artists")))
-                {
-                    Dictionary<string, object> attr = GetDictionary(artist, "attributes");
-                    int score = ScoreName(GetString(attr, "name"), request.Artist) + 20;
-                    results.Add(new ResourceResult
-                    {
-                        Source = "Apple Music",
-                        ResourceType = "artist art",
-                        Label = GetString(attr, "name"),
-                        Detail = "Artist profile artwork",
-                        ArtworkUrl = FormatAppleArtworkUrl(GetNestedString(attr, "artwork", "url"), 1200, 1200),
-                        Score = score
-                    });
-                }
-
-                if (results.Count(r => r.Source == "Apple Music") > 0)
-                {
-                    break;
-                }
-            }
-
-            foreach (string featured in SplitFeaturedArtists(request.FeaturedArtist))
-            {
-                string url = string.Format(
-                    "https://api.music.apple.com/v1/catalog/us/search?term={0}&types=artists&limit=10",
-                    Uri.EscapeDataString(featured));
-                Dictionary<string, object> root = GetJson(url, new Dictionary<string, string> { { "Authorization", "Bearer " + token } });
-                foreach (Dictionary<string, object> artist in GetDataArray(GetDictionary(GetDictionary(root, "results"), "artists")))
-                {
-                    Dictionary<string, object> attr = GetDictionary(artist, "attributes");
-                    results.Add(new ResourceResult
-                    {
-                        Source = "Apple Music",
-                        ResourceType = "featured artist art",
-                        Label = GetString(attr, "name"),
-                        Detail = "Right panel priority candidate",
-                        ArtworkUrl = FormatAppleArtworkUrl(GetNestedString(attr, "artwork", "url"), 1200, 1200),
-                        Score = ScoreName(GetString(attr, "name"), featured) + 80
-                    });
-                }
-            }
-
-            return Deduplicate(results);
-        }
-
         private IEnumerable<ResourceResult> SearchMusicBrainz(JukeboxSearchRequest request)
         {
             var results = new List<ResourceResult>();
@@ -196,7 +124,7 @@ namespace BitLCDMarqueeStudio
                 {
                     Source = "MusicBrainz",
                     ResourceType = "status",
-                    Label = "MusicBrainz is temporarily unavailable. Apple Music and other artwork results can still be used.",
+                    Label = "MusicBrainz is temporarily unavailable. Other artwork providers can still be used.",
                     Detail = DescribeWebException(ex),
                     Score = -1
                 });
@@ -228,6 +156,226 @@ namespace BitLCDMarqueeStudio
             return results;
         }
 
+        private IEnumerable<ResourceResult> SearchDiscogs(JukeboxSearchRequest request)
+        {
+            var results = new List<ResourceResult>();
+            string token = ReadResourceText("discogs_user_token.txt");
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                results.Add(new ResourceResult
+                {
+                    Source = "Discogs",
+                    ResourceType = "status",
+                    Label = "Discogs user token not found.",
+                    Detail = "Add discogs_user_token.txt to resources.",
+                    Score = -1
+                });
+                return results;
+            }
+
+            var detailUrls = new List<DiscogsDetailRequest>();
+            foreach (DiscogsSearchRequest search in BuildDiscogsSearchRequests(request, token))
+            {
+                Dictionary<string, object> root = GetJson(search.Url, new Dictionary<string, string>
+                {
+                    { "User-Agent", "BitLCDMarqueeStudio/0.1 +https://github.com/stevehammoud/BitLCDMarqueeStudio" }
+                });
+
+                foreach (Dictionary<string, object> item in GetArray(root, "results").Take(12))
+                {
+                    string artworkUrl = GetString(item, "cover_image");
+                    if (IsDiscogsPlaceholderImage(artworkUrl))
+                    {
+                        artworkUrl = GetString(item, "thumb");
+                    }
+
+                    string title = GetString(item, "title");
+                    string type = GetDiscogsResultType(item, search.Type);
+                    string year = GetString(item, "year");
+                    string country = GetString(item, "country");
+                    string label = string.IsNullOrWhiteSpace(title) ? request.Title : title;
+                    int score = ScoreDiscogsCandidate(item, request);
+
+                    if (!IsDiscogsPlaceholderImage(artworkUrl))
+                    {
+                        results.Add(new ResourceResult
+                        {
+                            Source = "Discogs",
+                            ResourceType = DiscogsResourceType(type, "cover"),
+                            Label = label,
+                            Detail = string.Join(" | ", new[] { year, country, GetDiscogsFormat(item) }.Where(v => !string.IsNullOrWhiteSpace(v)).ToArray()),
+                            ArtworkUrl = artworkUrl,
+                            Score = score
+                        });
+                    }
+
+                    string resourceUrl = GetString(item, "resource_url");
+                    if (!string.IsNullOrWhiteSpace(resourceUrl))
+                    {
+                        detailUrls.Add(new DiscogsDetailRequest(resourceUrl, type, label, score));
+                    }
+                }
+
+                if (results.Any(r => r.Score >= 250))
+                {
+                    break;
+                }
+            }
+
+            foreach (DiscogsDetailRequest detail in detailUrls
+                .GroupBy(d => d.Url, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.OrderByDescending(d => d.Score).First())
+                .OrderByDescending(d => d.Score)
+                .Take(18))
+            {
+                AddDiscogsDetailImages(results, detail, token);
+            }
+
+            return Deduplicate(results);
+        }
+
+        private void AddDiscogsDetailImages(IList<ResourceResult> results, DiscogsDetailRequest detail, string token)
+        {
+            string url = AppendDiscogsToken(detail.Url, token);
+            Dictionary<string, object> root;
+            try
+            {
+                root = GetJson(url, new Dictionary<string, string>
+                {
+                    { "User-Agent", "BitLCDMarqueeStudio/0.1 +https://github.com/stevehammoud/BitLCDMarqueeStudio" }
+                });
+            }
+            catch (WebException)
+            {
+                return;
+            }
+
+            int imageIndex = 0;
+            foreach (Dictionary<string, object> image in GetArray(root, "images"))
+            {
+                string imageUrl = GetString(image, "uri");
+                if (IsDiscogsPlaceholderImage(imageUrl)) imageUrl = GetString(image, "resource_url");
+                if (IsDiscogsPlaceholderImage(imageUrl)) imageUrl = GetString(image, "uri150");
+                if (IsDiscogsPlaceholderImage(imageUrl)) continue;
+
+                string imageType = GetString(image, "type");
+                string resourceType = DiscogsResourceType(detail.Type, string.IsNullOrWhiteSpace(imageType) ? "image" : imageType + " image");
+                results.Add(new ResourceResult
+                {
+                    Source = "Discogs",
+                    ResourceType = resourceType,
+                    Label = detail.Label,
+                    Detail = "Discogs detail image " + (++imageIndex).ToString(CultureInfo.InvariantCulture),
+                    ArtworkUrl = imageUrl,
+                    Score = detail.Score - imageIndex
+                });
+            }
+        }
+
+        private static IEnumerable<DiscogsSearchRequest> BuildDiscogsSearchRequests(JukeboxSearchRequest request, string token)
+        {
+            var searches = new List<DiscogsSearchRequest>();
+            string baseUrl = "https://api.discogs.com/database/search?per_page=25&token=" + Uri.EscapeDataString(token);
+            string artist = (request.Artist ?? string.Empty).Trim();
+            string title = (request.Title ?? string.Empty).Trim();
+            string album = (request.AlbumOrRelease ?? string.Empty).Trim();
+            string year = (request.ReleaseYear ?? string.Empty).Trim();
+
+            if (!string.IsNullOrWhiteSpace(artist) && !string.IsNullOrWhiteSpace(album))
+            {
+                AddDiscogsTypedSearch(searches, baseUrl, "release", "&artist=" + Uri.EscapeDataString(artist) + "&release_title=" + Uri.EscapeDataString(album) + OptionalDiscogsYear(year));
+                AddDiscogsTypedSearch(searches, baseUrl, "master", "&artist=" + Uri.EscapeDataString(artist) + "&release_title=" + Uri.EscapeDataString(album) + OptionalDiscogsYear(year));
+            }
+
+            if (!string.IsNullOrWhiteSpace(artist) && !string.IsNullOrWhiteSpace(title))
+            {
+                AddDiscogsTypedSearch(searches, baseUrl, "release", "&artist=" + Uri.EscapeDataString(artist) + "&track=" + Uri.EscapeDataString(title) + OptionalDiscogsYear(year));
+                AddDiscogsTypedSearch(searches, baseUrl, "master", "&artist=" + Uri.EscapeDataString(artist) + "&track=" + Uri.EscapeDataString(title) + OptionalDiscogsYear(year));
+            }
+
+            if (!string.IsNullOrWhiteSpace(artist))
+            {
+                AddDiscogsTypedSearch(searches, baseUrl, "artist", "&q=" + Uri.EscapeDataString(artist));
+                AddDiscogsTypedSearch(searches, baseUrl, "label", "&q=" + Uri.EscapeDataString(artist));
+            }
+
+            string fullQuery = string.Join(" ", new[] { artist, title, album, year }.Where(v => !string.IsNullOrWhiteSpace(v)).ToArray()).Trim();
+            if (!string.IsNullOrWhiteSpace(fullQuery))
+            {
+                AddDiscogsTypedSearch(searches, baseUrl, "release", "&q=" + Uri.EscapeDataString(fullQuery));
+                AddDiscogsTypedSearch(searches, baseUrl, "master", "&q=" + Uri.EscapeDataString(fullQuery));
+            }
+
+            return searches
+                .GroupBy(s => s.Url, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First());
+        }
+
+        private static void AddDiscogsTypedSearch(ICollection<DiscogsSearchRequest> searches, string baseUrl, string type, string parameters)
+        {
+            searches.Add(new DiscogsSearchRequest(type, baseUrl + "&type=" + Uri.EscapeDataString(type) + parameters));
+        }
+
+        private static string OptionalDiscogsYear(string year)
+        {
+            return string.IsNullOrWhiteSpace(year) ? string.Empty : "&year=" + Uri.EscapeDataString(year);
+        }
+
+        private static bool IsDiscogsPlaceholderImage(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return true;
+            string normalized = url.ToLowerInvariant();
+            return normalized.Contains("spacer.gif") || normalized.Contains("transparent.gif");
+        }
+
+        private static string AppendDiscogsToken(string url, string token)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
+            string separator = url.Contains("?") ? "&" : "?";
+            return url + separator + "token=" + Uri.EscapeDataString(token);
+        }
+
+        private static string GetDiscogsResultType(Dictionary<string, object> item, string fallbackType)
+        {
+            string type = GetString(item, "type");
+            return string.IsNullOrWhiteSpace(type) ? fallbackType : type;
+        }
+
+        private static string DiscogsResourceType(string type, string suffix)
+        {
+            type = string.IsNullOrWhiteSpace(type) ? "resource" : type.Trim();
+            suffix = string.IsNullOrWhiteSpace(suffix) ? "image" : suffix.Trim();
+            return type + " " + suffix;
+        }
+
+        private static string GetDiscogsFormat(Dictionary<string, object> item)
+        {
+            object value;
+            if (item != null && item.TryGetValue("format", out value))
+            {
+                var array = value as ArrayList;
+                if (array != null) return string.Join(", ", array.Cast<object>().Select(v => Convert.ToString(v, CultureInfo.InvariantCulture)).Where(v => !string.IsNullOrWhiteSpace(v)).ToArray());
+                var enumerable = value as IEnumerable;
+                if (enumerable != null && !(value is string)) return string.Join(", ", enumerable.Cast<object>().Select(v => Convert.ToString(v, CultureInfo.InvariantCulture)).Where(v => !string.IsNullOrWhiteSpace(v)).ToArray());
+            }
+            return GetString(item, "format");
+        }
+
+        private static int ScoreDiscogsCandidate(Dictionary<string, object> item, JukeboxSearchRequest request)
+        {
+            string title = GetString(item, "title");
+            string year = GetString(item, "year");
+            int score = 35;
+            score += ScoreName(title, request.Artist) * 2;
+            score += ScoreName(title, request.AlbumOrRelease) * 2;
+            score += ScoreName(title, request.Title);
+            if (!string.IsNullOrWhiteSpace(request.ReleaseYear) && string.Equals(year, request.ReleaseYear, StringComparison.OrdinalIgnoreCase))
+            {
+                score += 35;
+            }
+            return score;
+        }
+
         private IEnumerable<ResourceResult> SearchFanArt(JukeboxSearchRequest request)
         {
             var results = new List<ResourceResult>();
@@ -253,13 +401,15 @@ namespace BitLCDMarqueeStudio
             }
             Dictionary<string, object> root = GetJson(url, null);
 
-            AddFanArtArray(results, root, "musiclogo", "artist logo");
-            AddFanArtArray(results, root, "artistthumb", "artist image");
-            AddFanArtArray(results, root, "artistbackground", "artist background");
+            AddFanArtArray(results, root, "hdmusiclogo", "artist logo", mbid);
+            AddFanArtArray(results, root, "musiclogo", "artist logo", mbid);
+            AddFanArtArray(results, root, "musicbanner", "artist banner", mbid);
+            AddFanArtArray(results, root, "artistthumb", "artist image", mbid);
+            AddFanArtArray(results, root, "artistbackground", "artist background", mbid);
             return results;
         }
 
-        private void AddFanArtArray(IList<ResourceResult> results, Dictionary<string, object> root, string key, string type)
+        private void AddFanArtArray(IList<ResourceResult> results, Dictionary<string, object> root, string key, string type, string mbid)
         {
             foreach (Dictionary<string, object> item in GetArray(root, key))
             {
@@ -267,8 +417,8 @@ namespace BitLCDMarqueeStudio
                 {
                     Source = "FanArt.tv",
                     ResourceType = type,
-                    Label = type,
-                    Detail = "FanArt.tv asset",
+                    Label = key,
+                    Detail = "FanArt.tv asset | MBID: " + mbid,
                     ArtworkUrl = GetString(item, "url"),
                     Score = type == "artist logo" ? 70 : 45
                 });
@@ -277,7 +427,7 @@ namespace BitLCDMarqueeStudio
 
         private string FindMusicBrainzArtistId(string artistName)
         {
-            string url = "https://musicbrainz.org/ws/2/artist/?query=" + Uri.EscapeDataString("artist:\"" + EscapeMusicBrainzQuery(artistName) + "\"") + "&fmt=json&limit=5";
+            string url = "https://musicbrainz.org/ws/2/artist/?query=" + Uri.EscapeDataString("artist:" + artistName) + "&fmt=json&limit=1";
             Dictionary<string, object> root;
             try
             {
@@ -290,56 +440,150 @@ namespace BitLCDMarqueeStudio
             {
                 return string.Empty;
             }
-            Dictionary<string, object> best = null;
-            int bestScore = -1;
-            foreach (Dictionary<string, object> artist in GetArray(root, "artists"))
+            Dictionary<string, object> first = GetArray(root, "artists").FirstOrDefault();
+            return first == null ? string.Empty : GetString(first, "id");
+        }
+
+        private IEnumerable<ResourceResult> SearchScreenScraper(ArcadeSearchRequest request)
+        {
+            var results = new List<ResourceResult>();
+            string devId = ReadResourceText("screenscraper_devid.txt");
+            string devPassword = ReadResourceText("screenscraper_devpassword.txt");
+            string softName = ReadResourceText("screenscraper_softname.txt");
+            string ssid = ReadResourceText("screenscraper_ssid.txt");
+            string ssPassword = ReadResourceText("screenscraper_sspassword.txt");
+
+            if (string.IsNullOrWhiteSpace(softName)) softName = "BitLCDMarqueeStudio";
+            if (string.IsNullOrWhiteSpace(devId) || string.IsNullOrWhiteSpace(devPassword))
             {
-                int score = ScoreName(GetString(artist, "name"), artistName);
-                if (score > bestScore)
+                results.Add(new ResourceResult
                 {
-                    bestScore = score;
-                    best = artist;
-                }
+                    Source = "ScreenScraper",
+                    ResourceType = "status",
+                    Label = "ScreenScraper developer credentials are required.",
+                    Detail = "Add screenscraper_devid.txt and screenscraper_devpassword.txt to resources.",
+                    Score = -1
+                });
+                return results;
             }
-            return best == null ? string.Empty : GetString(best, "id");
+
+            string gameName = (request.GameName ?? string.Empty).Trim();
+            string romName = (request.RomName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(gameName) && string.IsNullOrWhiteSpace(romName))
+            {
+                results.Add(new ResourceResult { Source = "ScreenScraper", ResourceType = "status", Label = "Arcade game name or ROM name is required." });
+                return results;
+            }
+
+            string baseParams = BuildScreenScraperBaseParameters(devId, devPassword, softName, ssid, ssPassword, request.SystemId);
+
+            if (!string.IsNullOrWhiteSpace(romName))
+            {
+                AddScreenScraperRomLookup(results, baseParams, "romnom", romName);
+                AddScreenScraperRomLookup(results, baseParams, "romfilename", romName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(gameName))
+            {
+                string url = "https://api.screenscraper.fr/api2/jeuRecherche.php?output=json" + baseParams;
+                url += "&recherche=" + Uri.EscapeDataString(gameName);
+
+                Dictionary<string, object> root = GetJson(url, null);
+                AddScreenScraperGamesFromResponse(results, GetDictionary(root, "response"), gameName);
+            }
+
+            return Deduplicate(results);
         }
 
-        private IEnumerable<string> BuildAppleSearchTerms(JukeboxSearchRequest request)
+        private static string BuildScreenScraperBaseParameters(string devId, string devPassword, string softName, string ssid, string ssPassword, string systemId)
         {
-            var terms = new List<string>();
-            AddTerm(terms, request.Artist, request.Title, request.AlbumOrRelease, request.ReleaseYear);
-            AddTerm(terms, request.Artist, request.Title, request.AlbumOrRelease, string.Empty);
-            AddTerm(terms, request.Artist, request.Title, string.Empty, request.ReleaseYear);
-            AddTerm(terms, request.Artist, request.Title, string.Empty, string.Empty);
-            return terms.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase);
+            string url = "&devid=" + Uri.EscapeDataString(devId);
+            url += "&devpassword=" + Uri.EscapeDataString(devPassword);
+            url += "&softname=" + Uri.EscapeDataString(softName);
+            if (!string.IsNullOrWhiteSpace(ssid)) url += "&ssid=" + Uri.EscapeDataString(ssid);
+            if (!string.IsNullOrWhiteSpace(ssPassword)) url += "&sspassword=" + Uri.EscapeDataString(ssPassword);
+            if (!string.IsNullOrWhiteSpace(systemId)) url += "&systemeid=" + Uri.EscapeDataString(systemId.Trim());
+            return url;
         }
 
-        private static void AddTerm(ICollection<string> terms, string artist, string title, string release, string year)
+        private void AddScreenScraperRomLookup(IList<ResourceResult> results, string baseParams, string parameterName, string romName)
         {
-            string term = string.Join(" ", new[] { artist, title, release, year }.Where(v => !string.IsNullOrWhiteSpace(v))).Trim();
-            if (!string.IsNullOrWhiteSpace(term))
+            string url = "https://api.screenscraper.fr/api2/jeuInfos.php?output=json" + baseParams;
+            url += "&" + parameterName + "=" + Uri.EscapeDataString(romName);
+            try
             {
-                terms.Add(term);
+                Dictionary<string, object> root = GetJson(url, null);
+                AddScreenScraperGamesFromResponse(results, GetDictionary(root, "response"), romName);
+            }
+            catch (WebException)
+            {
             }
         }
 
-        private int ScoreAppleCandidate(Dictionary<string, object> attributes, JukeboxSearchRequest request)
+        private void AddScreenScraperGamesFromResponse(IList<ResourceResult> results, Dictionary<string, object> response, string fallbackName)
         {
-            int score = 0;
-            score += ScoreName(GetString(attributes, "name"), request.Title) * 2;
-            score += ScoreName(GetString(attributes, "artistName"), request.Artist);
-            if (!string.IsNullOrWhiteSpace(request.AlbumOrRelease))
+            Dictionary<string, object> singleGame = GetDictionary(response, "jeu");
+            if (singleGame.Count > 0)
             {
-                score += ScoreName(GetString(attributes, "albumName"), request.AlbumOrRelease) * 2;
+                AddScreenScraperGame(results, singleGame, fallbackName);
             }
-            if (!string.IsNullOrWhiteSpace(request.ReleaseYear))
+
+            foreach (Dictionary<string, object> game in GetArray(response, "jeux"))
             {
-                string releaseDate = GetString(attributes, "releaseDate");
-                if (releaseDate.StartsWith(request.ReleaseYear, StringComparison.Ordinal)) score += 25;
+                AddScreenScraperGame(results, game, fallbackName);
             }
-            string combined = (GetString(attributes, "name") + " " + GetString(attributes, "artistName") + " " + GetString(attributes, "albumName")).ToLowerInvariant();
-            if (Regex.IsMatch(combined, "karaoke|tribute|made famous by|workout|cover version")) score -= 80;
-            return score;
+        }
+
+        private void AddScreenScraperGame(IList<ResourceResult> results, Dictionary<string, object> game, string fallbackName)
+        {
+            string label = GetPreferredLocalizedText(game, "noms", "text");
+            if (string.IsNullOrWhiteSpace(label)) label = GetString(game, "nom");
+            AddScreenScraperMedia(results, game, label, fallbackName);
+        }
+        private void AddScreenScraperMedia(IList<ResourceResult> results, Dictionary<string, object> game, string label, string gameName)
+        {
+            foreach (Dictionary<string, object> media in GetArray(game, "medias"))
+            {
+                string type = GetString(media, "type");
+                string url = GetString(media, "url");
+                if (string.IsNullOrWhiteSpace(url)) continue;
+                if (!IsUsefulScreenScraperMedia(type)) continue;
+
+                results.Add(new ResourceResult
+                {
+                    Source = "ScreenScraper",
+                    ResourceType = type,
+                    Label = string.IsNullOrWhiteSpace(label) ? gameName : label,
+                    Detail = "ScreenScraper media: " + type,
+                    ArtworkUrl = url,
+                    Score = ScoreScreenScraperMedia(type)
+                });
+            }
+        }
+
+        private static bool IsUsefulScreenScraperMedia(string type)
+        {
+            string normalized = (type ?? string.Empty).ToLowerInvariant();
+            return normalized.Contains("wheel") ||
+                   normalized.Contains("logo") ||
+                   normalized.Contains("marquee") ||
+                   normalized.Contains("screen") ||
+                   normalized.Contains("box") ||
+                   normalized.Contains("fanart") ||
+                   normalized.Contains("mix") ||
+                   normalized.Contains("bezel") ||
+                   normalized.Contains("cabinet");
+        }
+
+        private static int ScoreScreenScraperMedia(string type)
+        {
+            string normalized = (type ?? string.Empty).ToLowerInvariant();
+            if (normalized.Contains("wheel") || normalized.Contains("logo")) return 90;
+            if (normalized.Contains("marquee")) return 85;
+            if (normalized.Contains("fanart")) return 75;
+            if (normalized.Contains("screen")) return 70;
+            if (normalized.Contains("box")) return 60;
+            return 45;
         }
 
         private static int ScoreName(string actual, string expected)
@@ -384,92 +628,6 @@ namespace BitLCDMarqueeStudio
             return Regex.Split(value, @"\s*(?:,|&|\+|\sx\s|\sand\s)\s*", RegexOptions.IgnoreCase)
                 .Select(v => v.Trim())
                 .Where(v => !string.IsNullOrWhiteSpace(v));
-        }
-
-        private string GetAppleDeveloperToken()
-        {
-            if (!string.IsNullOrWhiteSpace(_appleToken) && _appleTokenExpiresUtc > DateTime.UtcNow.AddMinutes(5))
-            {
-                return _appleToken;
-            }
-
-            string teamId = ReadResourceText("apple_music_team_id.txt");
-            string keyId = ReadResourceText("apple_music_key_id.txt");
-            string privateKeyPath = ReadResourceText("apple_music_private_key_path.txt");
-            if (!string.IsNullOrWhiteSpace(privateKeyPath) && Directory.Exists(privateKeyPath) && !string.IsNullOrWhiteSpace(keyId))
-            {
-                privateKeyPath = Path.Combine(privateKeyPath, "AuthKey_" + keyId + ".p8");
-            }
-            if (string.IsNullOrWhiteSpace(teamId) || string.IsNullOrWhiteSpace(keyId) || string.IsNullOrWhiteSpace(privateKeyPath) || !File.Exists(privateKeyPath))
-            {
-                return string.Empty;
-            }
-
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            DateTimeOffset exp = now.AddDays(170);
-            string header = _json.Serialize(new Dictionary<string, object> { { "alg", "ES256" }, { "kid", keyId }, { "typ", "JWT" } });
-            string payload = _json.Serialize(new Dictionary<string, object> { { "iss", teamId }, { "iat", ToUnixTimeSeconds(now) }, { "exp", ToUnixTimeSeconds(exp) } });
-            string signingInput = Base64Url(Encoding.UTF8.GetBytes(header)) + "." + Base64Url(Encoding.UTF8.GetBytes(payload));
-            byte[] signature = SignAppleJwt(signingInput, privateKeyPath);
-            _appleToken = signingInput + "." + Base64Url(ConvertDerSignatureToJose(signature));
-            _appleTokenExpiresUtc = exp.UtcDateTime;
-            return _appleToken;
-        }
-
-        private static byte[] SignAppleJwt(string signingInput, string privateKeyPath)
-        {
-            string pem = File.ReadAllText(privateKeyPath);
-            pem = pem.Replace("-----BEGIN PRIVATE KEY-----", string.Empty).Replace("-----END PRIVATE KEY-----", string.Empty);
-            pem = Regex.Replace(pem, @"\s+", string.Empty);
-            byte[] pkcs8 = Convert.FromBase64String(pem);
-            using (CngKey key = CngKey.Import(pkcs8, CngKeyBlobFormat.Pkcs8PrivateBlob))
-            using (ECDsaCng ecdsa = new ECDsaCng(key))
-            {
-                ecdsa.HashAlgorithm = CngAlgorithm.Sha256;
-                return ecdsa.SignData(Encoding.ASCII.GetBytes(signingInput));
-            }
-        }
-
-        private static byte[] ConvertDerSignatureToJose(byte[] signature)
-        {
-            if (signature.Length == 64 || signature.Length < 8 || signature[0] != 0x30) return signature;
-            int offset = 2;
-            if ((signature[1] & 0x80) != 0)
-            {
-                offset = 2 + (signature[1] & 0x7f);
-            }
-            if (signature[offset] != 0x02) return signature;
-            int rLength = signature[offset + 1];
-            int rStart = offset + 2;
-            int sMarker = rStart + rLength;
-            if (sMarker >= signature.Length || signature[sMarker] != 0x02) return signature;
-            int sLength = signature[sMarker + 1];
-            int sStart = sMarker + 2;
-            byte[] r = TrimInteger(signature, rStart, rLength);
-            byte[] s = TrimInteger(signature, sStart, sLength);
-            byte[] raw = new byte[64];
-            Buffer.BlockCopy(r, 0, raw, 32 - r.Length, r.Length);
-            Buffer.BlockCopy(s, 0, raw, 64 - s.Length, s.Length);
-            return raw;
-        }
-
-        private static byte[] TrimInteger(byte[] source, int start, int length)
-        {
-            var bytes = new List<byte>();
-            for (int i = 0; i < length; i++) bytes.Add(source[start + i]);
-            while (bytes.Count > 32 && bytes[0] == 0) bytes.RemoveAt(0);
-            return bytes.ToArray();
-        }
-
-        private static string Base64Url(byte[] bytes)
-        {
-            return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        }
-
-        private static long ToUnixTimeSeconds(DateTimeOffset value)
-        {
-            DateTime epoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-            return (long)(value.UtcDateTime - epoch).TotalSeconds;
         }
 
         private Dictionary<string, object> GetJson(string url, IDictionary<string, string> headers)
@@ -574,12 +732,6 @@ namespace BitLCDMarqueeStudio
             return Path.Combine(baseDirectory, "resources");
         }
 
-        private static string FormatAppleArtworkUrl(string url, int width, int height)
-        {
-            if (string.IsNullOrWhiteSpace(url)) return string.Empty;
-            return url.Replace("{w}", width.ToString(CultureInfo.InvariantCulture)).Replace("{h}", height.ToString(CultureInfo.InvariantCulture));
-        }
-
         private static IEnumerable<ResourceResult> Deduplicate(IEnumerable<ResourceResult> results)
         {
             return results
@@ -607,6 +759,51 @@ namespace BitLCDMarqueeStudio
         {
             Dictionary<string, object> release = GetArray(recording, "releases").FirstOrDefault();
             return release == null ? string.Empty : GetString(release, "title");
+        }
+
+        private static string GetPreferredLocalizedText(Dictionary<string, object> source, string arrayKey, string valueKey)
+        {
+            var items = GetArray(source, arrayKey).ToList();
+            string preferred = GetLocalizedTextByKeys(items, valueKey, new[] { "us", "usa", "en", "eng", "english", "world", "wor" });
+            if (!string.IsNullOrWhiteSpace(preferred)) return preferred;
+
+            foreach (Dictionary<string, object> item in items)
+            {
+                string text = GetString(item, valueKey);
+                if (!string.IsNullOrWhiteSpace(text)) return text;
+            }
+            return string.Empty;
+        }
+
+        private static string GetLocalizedTextByKeys(IEnumerable<Dictionary<string, object>> items, string valueKey, IEnumerable<string> preferredKeys)
+        {
+            foreach (string preferredKey in preferredKeys)
+            {
+                foreach (Dictionary<string, object> item in items)
+                {
+                    if (!LocalizedItemMatches(item, preferredKey)) continue;
+                    string text = GetString(item, valueKey);
+                    if (!string.IsNullOrWhiteSpace(text)) return text;
+                }
+            }
+            return string.Empty;
+        }
+
+        private static bool LocalizedItemMatches(Dictionary<string, object> item, string preferredKey)
+        {
+            return LocalizedValueMatches(GetString(item, "region"), preferredKey) ||
+                   LocalizedValueMatches(GetString(item, "regions"), preferredKey) ||
+                   LocalizedValueMatches(GetString(item, "langue"), preferredKey) ||
+                   LocalizedValueMatches(GetString(item, "language"), preferredKey) ||
+                   LocalizedValueMatches(GetString(item, "lang"), preferredKey) ||
+                   LocalizedValueMatches(GetString(item, "loc"), preferredKey);
+        }
+
+        private static bool LocalizedValueMatches(string value, string preferredKey)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            string normalized = value.Trim().ToLowerInvariant();
+            return normalized == preferredKey || normalized.Contains("-" + preferredKey) || normalized.Contains(preferredKey + "-");
         }
 
         private static string GetString(Dictionary<string, object> source, string key)
@@ -643,6 +840,34 @@ namespace BitLCDMarqueeStudio
             var enumerable = source[key] as IEnumerable;
             if (enumerable == null || source[key] is string) return Enumerable.Empty<Dictionary<string, object>>();
             return enumerable.OfType<Dictionary<string, object>>();
+        }
+
+        private sealed class DiscogsSearchRequest
+        {
+            public DiscogsSearchRequest(string type, string url)
+            {
+                Type = type ?? string.Empty;
+                Url = url ?? string.Empty;
+            }
+
+            public string Type { get; private set; }
+            public string Url { get; private set; }
+        }
+
+        private sealed class DiscogsDetailRequest
+        {
+            public DiscogsDetailRequest(string url, string type, string label, int score)
+            {
+                Url = url ?? string.Empty;
+                Type = type ?? string.Empty;
+                Label = label ?? string.Empty;
+                Score = score;
+            }
+
+            public string Url { get; private set; }
+            public string Type { get; private set; }
+            public string Label { get; private set; }
+            public int Score { get; private set; }
         }
     }
 }

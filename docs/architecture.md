@@ -24,6 +24,7 @@ Renderers should not assume jukebox. They should accept normalized artwork slots
 - center title/logo
 - metadata/story panel
 - optional animation timeline
+- freeform layers with independent placement, visibility windows, and animation presets
 
 ## Jukebox-Specific Rules
 
@@ -33,6 +34,7 @@ Jukebox is one content profile, not the whole app.
 - Right panel preference: featured artist, video still, primary artist, fallback logo
 - Center: title and artist word art or artist logo treatment
 - Static and animated outputs should share a consistent rest frame
+- Fixed L / M / R layout and blank-canvas layout are both supported
 
 ## Global Rules
 
@@ -40,3 +42,4 @@ Jukebox is one content profile, not the whole app.
 - Preserve Unicode metadata through lookup and rendering.
 - Sanitize only filesystem-invalid characters when writing files.
 - Keep generated output, cache, and credentials out of git.
+- Keep public source free of private/local provider integrations that cannot be redistributed.

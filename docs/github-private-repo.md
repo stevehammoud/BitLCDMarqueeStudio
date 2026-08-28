@@ -1,6 +1,6 @@
-# Private GitHub Repo Notes
+# Public GitHub Release Notes
 
-Recommended repository visibility: private.
+The public repository should exclude credentials, generated output, downloaded artwork, saved searches, and private/local provider integrations.
 
 Suggested repo name:
 
@@ -17,11 +17,11 @@ git ls-files
 
 Never commit:
 
-- Apple private key files
-- Apple credential pointer files
+- API credentials or token files
 - generated artwork
 - generated videos
 - local input lists with personal curation data
 - cache folders
+- downloads
 
 The `.gitignore` is set up to block these by default.

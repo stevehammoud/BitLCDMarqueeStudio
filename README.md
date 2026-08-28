@@ -1,6 +1,6 @@
 # BitLCD Marquee Studio
 
-Private/personal-use generator for BitLCD-ready marquees and related artwork across One saUCE / ALU content.
+Generator for BitLCD-ready marquees and related artwork across One saUCE / ALU content.
 
 This project is intentionally separate from Jukebox Download Wizard. Its job is not downloading media. Its job is generating clean BitLCD marquee/artwork assets for existing content.
 
@@ -29,9 +29,9 @@ scripts\build.ps1
 dist\BitLCDMarqueeStudio.exe
 ```
 
-## Private Apple Music Build
+## Public Build
 
-Apple Music artwork support is intended for personal/local use unless licensing is reviewed separately. Credentials, private keys, generated cache, and generated artwork are ignored by git.
+The public build does not include Apple Music artwork lookup, bundled artwork, API credentials, generated cache, saved searches, downloads, or generated marquee output. Users are responsible for using artwork they own or are authorized to use.
 
 ## Naming Rule
 
@@ -43,15 +43,34 @@ Early scaffold with live Jukebox resource search.
 
 Current search providers:
 
-- Apple Music catalog search for song/album artwork, music-video stills, artist art, and featured-artist art
+- Discogs search for release, master, artist, and label artwork using a local personal token
 - MusicBrainz recording metadata
 - FanArt.tv artist logo/image/background candidates
+- ScreenScraper arcade artwork candidates
+
+Optional provider credentials are read from local files under `resources`. These files are ignored by git.
+
+Discogs lookup reads a personal access token from:
+
+```text
+resources\discogs_user_token.txt
+```
+
+ScreenScraper lookup reads local credential files from:
+
+```text
+resources\screenscraper_devid.txt
+resources\screenscraper_devpassword.txt
+resources\screenscraper_softname.txt
+resources\screenscraper_ssid.txt
+resources\screenscraper_sspassword.txt
+```
 
 Current Jukebox workflow:
 
-- Enter artist and title search criteria.
+- Enter at least one Jukebox search field.
 - Optionally load a Jukebox theme text file using `artist - title - album` lines.
 - Pick artwork candidates for fixed L / M / R placement.
 - Clear any selected panel artwork when you want to revert that panel.
 - Let the app draw the middle title/artist panel when no middle artwork is selected.
-- Generate a BitLCD JPG named from the matching MP4 filename with ` (JUKE)` appended.
+- Generate a BitLCD JPG or animated MP4 named from the matching media filename with ` (JUKE)` appended.
